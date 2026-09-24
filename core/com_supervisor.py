@@ -308,6 +308,8 @@ class ComSupervisor:
                 self._app.Quit(WD_DO_NOT_SAVE_CHANGES)
             except Exception:
                 pass
+            finally:
+                self._app = None
 
         if self._owned_pid is not None and self._owned_create_time is not None:
             # Don dep binh thuong (khong phai lop cuong che) - cho toi da 5s de tien trinh tu
@@ -317,7 +319,6 @@ class ComSupervisor:
             while time.monotonic() < deadline and _process_is_same(self._owned_pid, self._owned_create_time):
                 time.sleep(0.1)
 
-        self._app = None
         self._owned_pid = None
         self._owned_create_time = None
         try:

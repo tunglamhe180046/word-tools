@@ -258,6 +258,9 @@ def _cmd_set_geometry(args: argparse.Namespace) -> Dict[str, Any]:
         balance=getattr(args, "balance", False),
         expand_transcripts=getattr(args, "expand_transcripts", False),
         row_height_dxa=getattr(args, "row_height_dxa", None),
+        table_width_dxa=getattr(args, "table_width_dxa", None),
+        strip_leading_empty=getattr(args, "strip_leading_empty_paragraphs", False),
+        box_placeholders=getattr(args, "box_placeholders", False),
         work_dir=work_dir,
         allowed_roots=_default_allowed_roots(docx_path),
         actor=actor,
@@ -389,6 +392,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p_geom.add_argument("--balance", action="store_true", help="Can chinh lai luoi cot va chieu rong cac o cua bang bi lech.")
     p_geom.add_argument("--expand-transcripts", action="store_true", help="Keo dan chieu cao hang de full trang A4.")
     p_geom.add_argument("--row-height-dxa", type=int, help="Chieu cao hang toi thieu (dxa).")
+    p_geom.add_argument(
+        "--table-width-dxa", type=int,
+        help="Thu/phong ty le (proportional) chieu rong bang ve dung gia tri dxa nay - ap dung cho "
+        "BAT KY hinh dang bang nao (khac --balance, chi khop 1 mau bang tong ket hoc ba co dinh).",
+    )
+    p_geom.add_argument(
+        "--strip-leading-empty-paragraphs", action="store_true",
+        help="Xoa doan van rong dung dau w:body (truoc bang dau tien) va dung dau moi o bang co "
+        "nhieu hon 1 doan van - san pham thua dien hinh cua add_paragraph()/add_table().",
+    )
+    p_geom.add_argument(
+        "--box-placeholders", action="store_true",
+        help="Dong khung cac placeholder CCCD ([ National Emblem ], [ Photo of Holder ], van tay) vao cac o vuong bang mini theo box_and_photo_rules.md.",
+    )
     p_geom.add_argument("--target-id")
     p_geom.add_argument("--expected-revision")
     p_geom.add_argument("--table-id")

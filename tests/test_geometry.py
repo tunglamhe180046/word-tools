@@ -551,3 +551,162 @@ def test_apply_geometry_expand_transcripts(tmp_path):
             assert v_align.attrib[f"{{{WORD_NS}}}val"] == "center"
 
 
+# ---------------------------------------------------------------------------
+# Nhom 6: Table Width (proportional, khac balance_table_grid() chi khop mau hoc ba)
+# ---------------------------------------------------------------------------
+def test_apply_geometry_table_width_dxa_scales_all_tables_proportionally(tmp_path):
+    docx_path = tmp_path / "sample.docx"
+    _build_two_table_docx(docx_path)  # 2 bang, moi bang 2 cot rong bang nhau
+
+    apply_geometry(
+        docx_path, page_size=None, margins=None, pagination=False, borders_preset=None,
+        table_locator=None, table_width_dxa=6898,
+        work_dir=tmp_path, allowed_roots=[str(tmp_path)], **COMMON_KWARGS,
+    )
+
+    body = load_document_root(docx_path).find("w:body", _NSMAP)
+    for tbl in body.findall("w:tbl", _NSMAP):
+        tbl_w = tbl.find("w:tblPr", _NSMAP).find("w:tblW", _NSMAP)
+        assert tbl_w.get(_w("w")) == "6898"
+        assert tbl_w.get(_w("type")) == "dxa"
+        jc = tbl.find("w:tblPr", _NSMAP).find("w:jc", _NSMAP)
+        assert jc.get(_w("val")) == "center"
+        cols = [int(c.get(_w("w"))) for c in tbl.find("w:tblGrid", _NSMAP).findall("w:gridCol", _NSMAP)]
+        assert sum(cols) == 6898
+        assert cols[0] == cols[1]  # 2 cot rong bang nhau -> van bang nhau sau khi scale
+        for tr in tbl.findall("w:tr", _NSMAP):
+            for tc, col_w in zip(tr.findall("w:tc", _NSMAP), cols):
+                tc_w = tc.find("w:tcPr", _NSMAP).find("w:tcW", _NSMAP)
+                assert int(tc_w.get(_w("w"))) == col_w
+
+
+def test_apply_geometry_table_width_dxa_with_target_id_scopes_one_table(tmp_path):
+    docx_path = tmp_path / "sample.docx"
+    _build_two_table_docx(docx_path)
+
+    report = inspect_document(docx_path, work_dir=tmp_path, job_id="job0")
+    loc_dict = next(l for l in report["locators"] if l["object_id"] == "cell_t1_r1_c1")
+    locator = ObjectLocator(**loc_dict)
+
+    body_before = load_document_root(docx_path).find("w:body", _NSMAP)
+    second_tbl_w_before = body_before.findall("w:tbl", _NSMAP)[1].find("w:tblPr", _NSMAP).find("w:tblW", _NSMAP)
+    second_tbl_w_before_attrs = dict(second_tbl_w_before.attrib) if second_tbl_w_before is not None else None
+
+    apply_geometry(
+        docx_path, page_size=None, margins=None, pagination=False, borders_preset=None,
+        table_locator=locator, target_locator=locator, table_width_dxa=6898,
+        work_dir=tmp_path, allowed_roots=[str(tmp_path)], **COMMON_KWARGS,
+    )
+
+    body = load_document_root(docx_path).find("w:body", _NSMAP)
+    tbls = body.findall("w:tbl", _NSMAP)
+    first_tbl_w = tbls[0].find("w:tblPr", _NSMAP).find("w:tblW", _NSMAP)
+    assert first_tbl_w.get(_w("w")) == "6898"
+    second_tbl_w = tbls[1].find("w:tblPr", _NSMAP).find("w:tblW", _NSMAP)
+    second_tbl_w_attrs = dict(second_tbl_w.attrib) if second_tbl_w is not None else None
+    assert second_tbl_w_attrs == second_tbl_w_before_attrs  # bang thu 2 khong bi dung toi
+
+
+# ---------------------------------------------------------------------------
+# Nhom 7: Strip Leading Empty Paragraphs
+# ---------------------------------------------------------------------------
+def _build_docx_with_leading_empty_paragraphs(path: Path) -> None:
+    doc = Document()
+    doc.add_paragraph("")  # P0 rong
+    doc.add_paragraph("")  # P1 rong
+    table = doc.add_table(rows=1, cols=2)
+    # python-docx add_table() de lai 1 w:p rong mac dinh trong moi o - them 1 doan van thuc su
+    # ngay sau de mo phong dung hien tuong "p[0] rong o dau moi o" ta trong nhiem vu.
+    table.cell(0, 0).paragraphs[0].insert_paragraph_before()
+    table.cell(0, 0).add_paragraph("Noi dung that")
+    table.cell(0, 1).text = "O don, khong rong"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(path)
+
+
+def test_apply_geometry_strip_leading_empty_removes_body_and_cell_leading_paragraphs(tmp_path):
+    docx_path = tmp_path / "sample.docx"
+    _build_docx_with_leading_empty_paragraphs(docx_path)
+
+    body_before = load_document_root(docx_path).find("w:body", _NSMAP)
+    assert len(body_before.findall("w:p", _NSMAP)) == 2  # P0, P1 truoc bang
+
+    apply_geometry(
+        docx_path, page_size=None, margins=None, pagination=False, borders_preset=None,
+        table_locator=None, strip_leading_empty=True,
+        work_dir=tmp_path, allowed_roots=[str(tmp_path)], **COMMON_KWARGS,
+    )
+
+    body = load_document_root(docx_path).find("w:body", _NSMAP)
+    # Khong con doan van rong nao truoc bang dau tien.
+    leading = []
+    for child in body:
+        if child.tag == f"{{{WORD_NS}}}tbl":
+            break
+        leading.append(child)
+    assert leading == []
+
+    tbl = body.find("w:tbl", _NSMAP)
+    cell0 = tbl.findall("w:tr", _NSMAP)[0].findall("w:tc", _NSMAP)[0]
+    cell0_paragraphs = cell0.findall("w:p", _NSMAP)
+    assert len(cell0_paragraphs) == 1
+    assert "".join(t.text or "" for t in cell0_paragraphs[0].iter(f"{{{WORD_NS}}}t")) == "Noi dung that"
+
+    cell1 = tbl.findall("w:tr", _NSMAP)[0].findall("w:tc", _NSMAP)[1]
+    assert len(cell1.findall("w:p", _NSMAP)) == 1  # o co dung 1 doan van thi khong bi dung toi
+
+
+def test_apply_geometry_strip_leading_empty_keeps_sole_paragraph_of_a_cell(tmp_path):
+    docx_path = tmp_path / "sample.docx"
+    _build_table_docx(docx_path, rows=1, cols=1, with_heading=False)
+
+    apply_geometry(
+        docx_path, page_size=None, margins=None, pagination=False, borders_preset=None,
+        table_locator=None, strip_leading_empty=True,
+        work_dir=tmp_path, allowed_roots=[str(tmp_path)], **COMMON_KWARGS,
+    )
+
+    body = load_document_root(docx_path).find("w:body", _NSMAP)
+    tbl = body.find("w:tbl", _NSMAP)
+    cell = tbl.findall("w:tr", _NSMAP)[0].findall("w:tc", _NSMAP)[0]
+    # O co dung 1 doan van (co chu "O 0-0") - khong rong, khong bi dung toi, van con dung 1 doan.
+    assert len(cell.findall("w:p", _NSMAP)) == 1
+
+
+def test_apply_geometry_box_placeholders(tmp_path):
+    docx_path = tmp_path / "cccd_sample.docx"
+    import docx
+    doc = docx.Document()
+    t0 = doc.add_table(rows=1, cols=2)
+    t0.rows[0].cells[0].paragraphs[0].text = "[ National Emblem ]"
+    t0.rows[0].cells[0].add_paragraph("[ Photo of Holder ]")
+    t0.rows[0].cells[0].add_paragraph("Date of expiry:\n01/01/2030")
+    t0.rows[0].cells[1].paragraphs[0].text = "CITIZEN IDENTITY CARD"
+
+    t1 = doc.add_table(rows=1, cols=2)
+    t1.rows[0].cells[0].paragraphs[0].text = "Personal identification"
+    t1.rows[0].cells[1].paragraphs[0].text = "[ Left index finger ]\n(Fingerprinted)\n\n[ Right index finger ]\n(Fingerprinted)"
+    doc.save(docx_path)
+
+    apply_geometry(
+        docx_path, box_placeholders=True,
+        work_dir=tmp_path, allowed_roots=[str(tmp_path)], **COMMON_KWARGS,
+    )
+
+    body = load_document_root(docx_path).find("w:body", _NSMAP)
+    tables = body.findall("w:tbl", _NSMAP)
+
+    # Table 0 Cell 0 has nested mini-tables for emblem and photo
+    t0_c0 = tables[0].findall("w:tr", _NSMAP)[0].findall("w:tc", _NSMAP)[0]
+    nested_t0 = t0_c0.findall("w:tbl", _NSMAP)
+    assert len(nested_t0) == 2  # Emblem box + Photo box
+
+    # Table 1 Cell 1 has nested mini-table for 2 fingerprints
+    t1_c1 = tables[1].findall("w:tr", _NSMAP)[0].findall("w:tc", _NSMAP)[1]
+    nested_t1 = t1_c1.findall("w:tbl", _NSMAP)
+    assert len(nested_t1) == 1
+    fp_tr = nested_t1[0].findall("w:tr", _NSMAP)[0]
+    assert len(fp_tr.findall("w:tc", _NSMAP)) == 2  # Left and Right cells
+
+
+

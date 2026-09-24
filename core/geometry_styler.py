@@ -442,6 +442,96 @@ def balance_table_grid(tbl: etree._Element, target_width: int = 10368) -> bool:
     return False
 
 
+def set_table_width_dxa(tbl: etree._Element, target_width: int) -> None:
+    """Thu/phong DEU TY LE (proportional scale) toan bo w:gridCol va w:tcW cua 1 bang ve dung
+    target_width (dxa), giu nguyen ty le tuong doi giua cac cot - khac balance_table_grid() o tren
+    (chi nhan dien duoc DUNG 1 mau bang tong ket hoc ba co dinh 4/6 cot, tra ve False voi bat ky
+    hinh dang bang nao khac). Ham nay ap dung duoc cho BAT KY so cot nao (vd cac bang khung the
+    CCCD front/back/notary chi co 1-3 cot don gian, khong khop mau hoc ba) bang cach scale ty le
+    thay vi ap mot bo do rong cot cung. Dat w:tblW type=dxa + w:jc=center. Bo qua (no-op) neu bang
+    khong co w:tblGrid hoac tong do rong hien tai <= 0 (khong the tinh ty le)."""
+    grid = tbl.find(_w("tblGrid"))
+    if grid is None:
+        return
+    cols = grid.findall(_w("gridCol"))
+    if not cols:
+        return
+    current_widths = [int(c.get(_w("w"), "0")) for c in cols]
+    current_total = sum(current_widths)
+    if current_total <= 0:
+        return
+
+    scale = target_width / current_total
+    new_widths = [round(w * scale) for w in current_widths]
+    new_widths[-1] += target_width - sum(new_widths)  # don rounding drift ve cot cuoi
+
+    for col_el, new_w in zip(cols, new_widths):
+        col_el.set(_w("w"), str(new_w))
+
+    tbl_pr = _get_or_insert_first(tbl, _w("tblPr"))
+    tbl_w_el = etree.Element(_w("tblW"))
+    tbl_w_el.set(_w("w"), str(target_width))
+    tbl_w_el.set(_w("type"), "dxa")
+    _set_ordered_child(tbl_pr, _w("tblW"), TBLPR_ORDER, tbl_w_el)
+
+    jc_el = etree.Element(_w("jc"))
+    jc_el.set(_w("val"), "center")
+    _set_ordered_child(tbl_pr, _w("jc"), TBLPR_ORDER, jc_el)
+
+    for tr in tbl.findall(_TR_TAG):
+        col_i = 0
+        for tc in tr.findall(_TC_TAG):
+            tc_pr = tc.find(_w("tcPr"))
+            if tc_pr is None:
+                col_i += 1
+                continue
+            grid_span_el = tc_pr.find(_w("gridSpan"))
+            span = int(grid_span_el.get(_w("val"))) if grid_span_el is not None else 1
+            span_width = sum(new_widths[col_i:col_i + span]) if col_i < len(new_widths) else 0
+            tc_w = tc_pr.find(_w("tcW"))
+            if tc_w is not None and span_width:
+                tc_w.set(_w("w"), str(span_width))
+            col_i += span
+
+
+def strip_leading_empty_paragraphs(body: etree._Element) -> int:
+    """Xoa cac w:p RONG (khong co bat ky w:t nao co noi dung, khong co w:drawing/w:pict/w:object)
+    khi dung LAM CON DAU TIEN cua w:body (chi tinh cac doan van truoc bang dau tien - KHONG dung
+    den bat ky doan van nao o giua hoac sau bang, vi do co the la khoang cach co chu dich), va khi
+    dung LAM CON DAU TIEN cua bat ky w:tc nao co NHIEU HON 1 doan van truc tiep (giu lai neu do la
+    doan van DUY NHAT cua o - 1 o luon can it nhat 1 w:p theo schema OOXML). Day la san pham thua
+    dien hinh cua python-docx add_table()/add_paragraph() (xem CLAUDE.md goc, muc nhiem vu). Tra ve
+    tong so doan van da xoa."""
+
+    def _is_empty_paragraph(p: etree._Element) -> bool:
+        if p.tag != _P_TAG:
+            return False
+        has_text = any((t.text or "").strip() for t in p.iter(_w("t")))
+        has_object = next(p.iter(_w("drawing")), None) is not None or next(p.iter(_w("pict")), None) is not None
+        return not has_text and not has_object
+
+    removed = 0
+
+    for child in list(body):
+        if child.tag == _TBL_TAG:
+            break
+        if _is_empty_paragraph(child):
+            body.remove(child)
+            removed += 1
+        else:
+            break
+
+    for tbl in body.findall(_TBL_TAG):
+        for tc in tbl.iter(_TC_TAG):
+            paragraphs = tc.findall(_P_TAG)
+            while len(paragraphs) > 1 and _is_empty_paragraph(paragraphs[0]):
+                tc.remove(paragraphs[0])
+                removed += 1
+                paragraphs = tc.findall(_P_TAG)
+
+    return removed
+
+
 def expand_transcript_table(tbl: etree._Element, row_height_dxa: int = 520) -> None:
     """Dat chieu cao toi thieu (w:trHeight atLeast) cho cac hang va can giua doc (w:vAlign center)
     cho cac o cua bang diem de lap day trang A4, tranh khoang trang trong o cuoi trang."""
@@ -453,6 +543,265 @@ def expand_transcript_table(tbl: etree._Element, row_height_dxa: int = 520) -> N
             tc_pr = _get_or_insert_first(tc, _w("tcPr"))
             v_align = etree.Element(_w("vAlign"), {_w("val"): "center"})
             _set_ordered_child(tc_pr, _w("vAlign"), TCPR_ORDER, v_align)
+
+
+def box_visual_placeholders(body: etree._Element) -> int:
+    """Enclose [ National Emblem ], [ Photo of Holder ], and fingerprint placeholders
+    inside dedicated bordered mini-table boxes according to box_and_photo_rules.md.
+    Returns number of cells modified.
+    """
+    def _make_tbl_border(color="000000", sz="4", val="single"):
+        tbl_borders = etree.Element(_w("tblBorders"))
+        for side in ("top", "left", "bottom", "right"):
+            el = etree.SubElement(tbl_borders, _w(side))
+            el.set(_w("val"), val)
+            el.set(_w("sz"), sz)
+            el.set(_w("space"), "0")
+            el.set(_w("color"), color)
+        for side in ("insideH", "insideV"):
+            el = etree.SubElement(tbl_borders, _w(side))
+            el.set(_w("val"), "none")
+        return tbl_borders
+
+    def _make_tc_border(color="000000", sz="4", val="single"):
+        tc_borders = etree.Element(_w("tcBorders"))
+        for side in ("top", "left", "bottom", "right"):
+            el = etree.SubElement(tc_borders, _w(side))
+            el.set(_w("val"), val)
+            el.set(_w("sz"), sz)
+            el.set(_w("space"), "0")
+            el.set(_w("color"), color)
+        return tc_borders
+
+    def _set_tc_mar(tc_pr, top=30, bottom=30, left=20, right=20):
+        mar = etree.SubElement(tc_pr, _w("tcMar"))
+        for side, val in [("top", top), ("bottom", bottom), ("left", left), ("right", right)]:
+            el = etree.SubElement(mar, _w(side))
+            el.set(_w("w"), str(val))
+            el.set(_w("type"), "dxa")
+
+    def _create_p(text, font_sz="14", italic=True, bold=False, before="40", after="40", align="center", subtext=None, subtext_sz="12"):
+        p = etree.Element(_w("p"))
+        p_pr = etree.SubElement(p, _w("pPr"))
+        jc = etree.SubElement(p_pr, _w("jc"))
+        jc.set(_w("val"), align)
+        sp = etree.SubElement(p_pr, _w("spacing"))
+        sp.set(_w("before"), before)
+        sp.set(_w("after"), after)
+        sp.set(_w("line"), "240")
+        sp.set(_w("lineRule"), "auto")
+
+        if text:
+            r = etree.SubElement(p, _w("r"))
+            r_pr = etree.SubElement(r, _w("rPr"))
+            r_fonts = etree.SubElement(r_pr, _w("rFonts"))
+            r_fonts.set(_w("ascii"), "Times New Roman")
+            r_fonts.set(_w("hAnsi"), "Times New Roman")
+            sz_el = etree.SubElement(r_pr, _w("sz"))
+            sz_el.set(_w("val"), font_sz)
+            if italic:
+                etree.SubElement(r_pr, _w("i"))
+            if bold:
+                etree.SubElement(r_pr, _w("b"))
+            t_el = etree.SubElement(r, _w("t"))
+            t_el.text = text
+
+        if subtext:
+            r2 = etree.SubElement(p, _w("r"))
+            etree.SubElement(r2, _w("br"))
+            r2_pr = etree.SubElement(r2, _w("rPr"))
+            r2_fonts = etree.SubElement(r2_pr, _w("rFonts"))
+            r2_fonts.set(_w("ascii"), "Times New Roman")
+            r2_fonts.set(_w("hAnsi"), "Times New Roman")
+            sz2_el = etree.SubElement(r2_pr, _w("sz"))
+            sz2_el.set(_w("val"), subtext_sz)
+            if italic:
+                etree.SubElement(r2_pr, _w("i"))
+            if bold:
+                etree.SubElement(r2_pr, _w("b"))
+            t2_el = etree.SubElement(r2, _w("t"))
+            t2_el.text = subtext
+        return p
+
+    modified_count = 0
+
+    for tbl in body.findall(_TBL_TAG):
+        for tc in tbl.iter(_TC_TAG):
+            if tc.find(_TBL_TAG) is not None:
+                continue
+
+            tc_text = "".join((t.text or "") for t in tc.iter(_w("t")))
+
+            # 1. Front card: National Emblem + Photo
+            if "[ National Emblem ]" in tc_text or "[ Photo of Holder ]" in tc_text:
+                expiry_text = ""
+                for p in tc.findall(_P_TAG):
+                    all_t = "".join((t.text or "") for t in p.iter(_w("t")))
+                    if "expiry" in all_t.lower():
+                        lines = [line.strip() for line in all_t.split("\n") if line.strip()]
+                        if len(lines) > 1:
+                            expiry_text = lines[-1]
+                        elif ":" in all_t:
+                            expiry_text = all_t.split(":")[-1].strip()
+
+                tc_pr = tc.find(_w("tcPr"))
+                for ch in list(tc):
+                    if ch != tc_pr:
+                        tc.remove(ch)
+
+                # Emblem Box
+                emblem_tbl = etree.SubElement(tc, _w("tbl"))
+                e_tbl_pr = etree.SubElement(emblem_tbl, _w("tblPr"))
+                e_tbl_w = etree.SubElement(e_tbl_pr, _w("tblW"))
+                e_tbl_w.set(_w("w"), "1500")
+                e_tbl_w.set(_w("type"), "dxa")
+                e_jc = etree.SubElement(e_tbl_pr, _w("jc"))
+                e_jc.set(_w("val"), "center")
+                e_tbl_pr.append(_make_tbl_border(sz="4"))
+                e_grid = etree.SubElement(emblem_tbl, _w("tblGrid"))
+                e_col = etree.SubElement(e_grid, _w("gridCol"))
+                e_col.set(_w("w"), "1500")
+                e_tr = etree.SubElement(emblem_tbl, _w("tr"))
+                e_tr_pr = etree.SubElement(e_tr, _w("trPr"))
+                etree.SubElement(e_tr_pr, _w("cantSplit"))
+                e_h = etree.SubElement(e_tr_pr, _w("trHeight"))
+                e_h.set(_w("val"), "600")
+                e_h.set(_w("hRule"), "atLeast")
+                e_tc = etree.SubElement(e_tr, _w("tc"))
+                e_tc_pr = etree.SubElement(e_tc, _w("tcPr"))
+                e_tc_w = etree.SubElement(e_tc_pr, _w("tcW"))
+                e_tc_w.set(_w("w"), "1500")
+                e_tc_w.set(_w("type"), "dxa")
+                _set_tc_mar(e_tc_pr, top=30, bottom=30, left=20, right=20)
+                e_valign = etree.SubElement(e_tc_pr, _w("vAlign"))
+                e_valign.set(_w("val"), "center")
+                e_tc.append(_create_p("[ National Emblem ]", font_sz="14", italic=True, before="40", after="40"))
+
+                # Spacer p
+                tc.append(_create_p("", before="20", after="20"))
+
+                # Photo Box
+                photo_tbl = etree.SubElement(tc, _w("tbl"))
+                p_tbl_pr = etree.SubElement(photo_tbl, _w("tblPr"))
+                p_tbl_w = etree.SubElement(p_tbl_pr, _w("tblW"))
+                p_tbl_w.set(_w("w"), "1872")
+                p_tbl_w.set(_w("type"), "dxa")
+                p_jc = etree.SubElement(p_tbl_pr, _w("jc"))
+                p_jc.set(_w("val"), "center")
+                p_tbl_pr.append(_make_tbl_border(sz="4"))
+                p_grid = etree.SubElement(photo_tbl, _w("tblGrid"))
+                p_col = etree.SubElement(p_grid, _w("gridCol"))
+                p_col.set(_w("w"), "1872")
+                p_tr = etree.SubElement(photo_tbl, _w("tr"))
+                p_tr_pr = etree.SubElement(p_tr, _w("trPr"))
+                etree.SubElement(p_tr_pr, _w("cantSplit"))
+                p_h = etree.SubElement(p_tr_pr, _w("trHeight"))
+                p_h.set(_w("val"), "2300")
+                p_h.set(_w("hRule"), "atLeast")
+                p_tc = etree.SubElement(p_tr, _w("tc"))
+                p_tc_pr = etree.SubElement(p_tc, _w("tcPr"))
+                p_tc_w = etree.SubElement(p_tc_pr, _w("tcW"))
+                p_tc_w.set(_w("w"), "1872")
+                p_tc_w.set(_w("type"), "dxa")
+                _set_tc_mar(p_tc_pr, top=40, bottom=40, left=30, right=30)
+                p_valign = etree.SubElement(p_tc_pr, _w("vAlign"))
+                p_valign.set(_w("val"), "center")
+                p_tc.append(_create_p("[ Photo of Holder ]", font_sz="15", italic=True, before="120", after="120"))
+
+                # Expiry p (guarantees cell ends with w:p)
+                p_exp = etree.SubElement(tc, _w("p"))
+                p_exp_pr = etree.SubElement(p_exp, _w("pPr"))
+                jc_exp = etree.SubElement(p_exp_pr, _w("jc"))
+                jc_exp.set(_w("val"), "center")
+                sp_exp = etree.SubElement(p_exp_pr, _w("spacing"))
+                sp_exp.set(_w("before"), "40")
+                sp_exp.set(_w("after"), "0")
+                r_exp1 = etree.SubElement(p_exp, _w("r"))
+                r_exp1_pr = etree.SubElement(r_exp1, _w("rPr"))
+                rf1 = etree.SubElement(r_exp1_pr, _w("rFonts"))
+                rf1.set(_w("ascii"), "Times New Roman")
+                rf1.set(_w("hAnsi"), "Times New Roman")
+                etree.SubElement(r_exp1_pr, _w("b"))
+                sz1 = etree.SubElement(r_exp1_pr, _w("sz"))
+                sz1.set(_w("val"), "15")
+                t_exp1 = etree.SubElement(r_exp1, _w("t"))
+                t_exp1.text = "Date of expiry:"
+
+                if expiry_text:
+                    r_exp2 = etree.SubElement(p_exp, _w("r"))
+                    etree.SubElement(r_exp2, _w("br"))
+                    r_exp2_pr = etree.SubElement(r_exp2, _w("rPr"))
+                    rf2 = etree.SubElement(r_exp2_pr, _w("rFonts"))
+                    rf2.set(_w("ascii"), "Times New Roman")
+                    rf2.set(_w("hAnsi"), "Times New Roman")
+                    etree.SubElement(r_exp2_pr, _w("b"))
+                    sz2 = etree.SubElement(r_exp2_pr, _w("sz"))
+                    sz2.set(_w("val"), "15")
+                    t_exp2 = etree.SubElement(r_exp2, _w("t"))
+                    t_exp2.text = expiry_text
+
+                modified_count += 1
+
+            # 2. Back card: Left & Right Fingerprints
+            elif "fingerprint" in tc_text.lower() or ("left index finger" in tc_text.lower() and "right index finger" in tc_text.lower()):
+                tc_pr = tc.find(_w("tcPr"))
+                for ch in list(tc):
+                    if ch != tc_pr:
+                        tc.remove(ch)
+
+                fp_tbl = etree.SubElement(tc, _w("tbl"))
+                fp_tbl_pr = etree.SubElement(fp_tbl, _w("tblPr"))
+                fp_tbl_w = etree.SubElement(fp_tbl_pr, _w("tblW"))
+                fp_tbl_w.set(_w("w"), "2200")
+                fp_tbl_w.set(_w("type"), "dxa")
+                fp_jc = etree.SubElement(fp_tbl_pr, _w("jc"))
+                fp_jc.set(_w("val"), "center")
+                fp_sp = etree.SubElement(fp_tbl_pr, _w("tblCellSpacing"))
+                fp_sp.set(_w("w"), "40")
+                fp_sp.set(_w("type"), "dxa")
+
+                fp_grid = etree.SubElement(fp_tbl, _w("tblGrid"))
+                fp_c1 = etree.SubElement(fp_grid, _w("gridCol"))
+                fp_c1.set(_w("w"), "1080")
+                fp_c2 = etree.SubElement(fp_grid, _w("gridCol"))
+                fp_c2.set(_w("w"), "1080")
+
+                fp_tr = etree.SubElement(fp_tbl, _w("tr"))
+                fp_tr_pr = etree.SubElement(fp_tr, _w("trPr"))
+                etree.SubElement(fp_tr_pr, _w("cantSplit"))
+                fp_h = etree.SubElement(fp_tr_pr, _w("trHeight"))
+                fp_h.set(_w("val"), "1300")
+                fp_h.set(_w("hRule"), "atLeast")
+
+                # Left FP Cell
+                l_tc = etree.SubElement(fp_tr, _w("tc"))
+                l_tc_pr = etree.SubElement(l_tc, _w("tcPr"))
+                l_tc_w = etree.SubElement(l_tc_pr, _w("tcW"))
+                l_tc_w.set(_w("w"), "1080")
+                l_tc_w.set(_w("type"), "dxa")
+                l_tc_pr.append(_make_tc_border(sz="4"))
+                _set_tc_mar(l_tc_pr, top=20, bottom=20, left=10, right=10)
+                l_valign = etree.SubElement(l_tc_pr, _w("vAlign"))
+                l_valign.set(_w("val"), "center")
+                l_tc.append(_create_p("[ Left index finger ]", font_sz="12", italic=True, before="30", after="20", subtext="(Fingerprinted)", subtext_sz="12"))
+
+                # Right FP Cell
+                r_tc = etree.SubElement(fp_tr, _w("tc"))
+                r_tc_pr = etree.SubElement(r_tc, _w("tcPr"))
+                r_tc_w = etree.SubElement(r_tc_pr, _w("tcW"))
+                r_tc_w.set(_w("w"), "1080")
+                r_tc_w.set(_w("type"), "dxa")
+                r_tc_pr.append(_make_tc_border(sz="4"))
+                _set_tc_mar(r_tc_pr, top=20, bottom=20, left=10, right=10)
+                r_valign = etree.SubElement(r_tc_pr, _w("vAlign"))
+                r_valign.set(_w("val"), "center")
+                r_tc.append(_create_p("[ Right index finger ]", font_sz="12", italic=True, before="30", after="20", subtext="(Fingerprinted)", subtext_sz="12"))
+
+                # Trailing empty p in parent tc
+                tc.append(_create_p("", before="0", after="0"))
+                modified_count += 1
+
+    return modified_count
 
 
 # ---------------------------------------------------------------------------
@@ -470,14 +819,18 @@ def apply_geometry(
     balance: bool = False,
     expand_transcripts: bool = False,
     row_height_dxa: Optional[int] = None,
+    table_width_dxa: Optional[int] = None,
+    strip_leading_empty: bool = False,
+    box_placeholders: bool = False,
     work_dir: Optional[Union[str, Path]] = None,
     allowed_roots: Optional[List[Union[str, Path]]] = None,
     actor: str = "word-engine",
     job_id: Optional[str] = None,
 ) -> PatchResult:
     """Diem vao cong khai duy nhat cua module (xem docstring nhiem vu Phase 2): ap dung tuan tu,
-    hoan toan doc lap cac nhom Page Setup -> Pagination -> Borders -> Alignment -> Balance -> Expand,
-    commit qua dung Commit Broker 18 buoc da kiem toan va tra ve locators moi qua mot lan re-inspect.
+    hoan toan doc lap cac nhom Page Setup -> Pagination -> Borders -> Alignment -> Balance ->
+    Table Width -> Strip Leading Empty -> Expand -> Box Placeholders, commit qua dung Commit Broker
+    18 buoc da kiem toan va tra ve locators moi qua mot lan re-inspect.
     """
     docx_path = Path(docx_path)
     if (
@@ -488,9 +841,13 @@ def apply_geometry(
         and align is None
         and not balance
         and not expand_transcripts
+        and table_width_dxa is None
+        and not strip_leading_empty
+        and not box_placeholders
     ):
         raise ValueError(
-            "apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset/align/balance/expand_transcripts."
+            "apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset/"
+            "align/balance/expand_transcripts/table_width_dxa/strip_leading_empty/box_placeholders."
         )
 
     root = load_document_root(docx_path)
@@ -553,6 +910,23 @@ def apply_geometry(
             for tbl in body.findall(_TBL_TAG):
                 balance_table_grid(tbl)
 
+    if table_width_dxa is not None:
+        loc = target_locator or table_locator
+        if loc is not None:
+            target_el = _resolve_target_element(docx_path, root, loc)
+            if target_el is not None:
+                tbl = target_el
+                while tbl is not None and tbl.tag != _TBL_TAG:
+                    tbl = tbl.getparent()
+                if tbl is not None:
+                    set_table_width_dxa(tbl, table_width_dxa)
+        else:
+            for tbl in body.findall(_TBL_TAG):
+                set_table_width_dxa(tbl, table_width_dxa)
+
+    if strip_leading_empty:
+        strip_leading_empty_paragraphs(body)
+
     if expand_transcripts:
         loc = target_locator or table_locator
         h = row_height_dxa or 520
@@ -568,6 +942,9 @@ def apply_geometry(
             for tbl in body.findall(_TBL_TAG):
                 if len(tbl.findall(_TR_TAG)) >= 15:
                     expand_transcript_table(tbl, h)
+
+    if box_placeholders:
+        box_visual_placeholders(body)
 
     commit_result = _stage_and_commit(docx_path, root, work_dir, allowed_roots, actor, job_id)
     inspect_report = inspect_document(docx_path, work_dir=work_dir, job_id=job_id)

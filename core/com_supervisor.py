@@ -58,10 +58,12 @@ Module nay chiu trach nhiem 2 phan doc lap:
 from __future__ import annotations
 
 import platform
+import shutil
 import threading
 import time
 import uuid
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 
@@ -359,6 +361,15 @@ class ComSupervisor:
         if not docx_path.exists():
             raise FileNotFoundError(f"Khong tim thay file docx: {docx_path}")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Sao luu ban PDF dich cu (neu co) truoc khi ExportAsFixedFormat ghi de - cung quy uoc
+        # <ten>.<timestamp><duoi> trong _backup/ da dung o dich-thuat/engine/delivery_backup.py va
+        # CLAUDE.md goc muc "Sao luu tu dong truoc khi ghi de file ho so".
+        if pdf_path.exists():
+            backup_dir = pdf_path.parent / "_backup"
+            backup_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+            shutil.copy2(pdf_path, backup_dir / f"{pdf_path.stem}.{timestamp}{pdf_path.suffix}")
 
         def _job(app: Any) -> Path:
             doc = app.Documents.Open(

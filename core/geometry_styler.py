@@ -442,6 +442,19 @@ def balance_table_grid(tbl: etree._Element, target_width: int = 10368) -> bool:
     return False
 
 
+def expand_transcript_table(tbl: etree._Element, row_height_dxa: int = 520) -> None:
+    """Dat chieu cao toi thieu (w:trHeight atLeast) cho cac hang va can giua doc (w:vAlign center)
+    cho cac o cua bang diem de lap day trang A4, tranh khoang trang trong o cuoi trang."""
+    for tr in tbl.findall(_TR_TAG):
+        tr_pr = _get_or_insert_first(tr, _w("trPr"))
+        tr_height = etree.Element(_w("trHeight"), {_w("val"): str(row_height_dxa), _w("hRule"): "atLeast"})
+        _set_ordered_child(tr_pr, _w("trHeight"), TRPR_ORDER, tr_height)
+        for tc in tr.findall(_TC_TAG):
+            tc_pr = _get_or_insert_first(tc, _w("tcPr"))
+            v_align = etree.Element(_w("vAlign"), {_w("val"): "center"})
+            _set_ordered_child(tc_pr, _w("vAlign"), TCPR_ORDER, v_align)
+
+
 # ---------------------------------------------------------------------------
 # Public API: apply_geometry()
 # ---------------------------------------------------------------------------
@@ -455,16 +468,16 @@ def apply_geometry(
     target_locator: Optional[ObjectLocator] = None,
     align: Optional[str] = None,
     balance: bool = False,
+    expand_transcripts: bool = False,
+    row_height_dxa: Optional[int] = None,
     work_dir: Optional[Union[str, Path]] = None,
     allowed_roots: Optional[List[Union[str, Path]]] = None,
     actor: str = "word-engine",
     job_id: Optional[str] = None,
 ) -> PatchResult:
     """Diem vao cong khai duy nhat cua module (xem docstring nhiem vu Phase 2): ap dung tuan tu,
-    hoan toan doc lap 3 nhom Page Setup -> Pagination -> Borders -> Alignment -> Balance, commit qua dung Commit
-    Broker 18 buoc da kiem toan (_stage_and_commit() tai su dung tu core/surgical_patcher.py, tu
-    no da bao gom issue_job() chup baseline hash truoc luc dong goi candidate) va tra ve locators
-    moi qua mot lan re-inspect.
+    hoan toan doc lap cac nhom Page Setup -> Pagination -> Borders -> Alignment -> Balance -> Expand,
+    commit qua dung Commit Broker 18 buoc da kiem toan va tra ve locators moi qua mot lan re-inspect.
     """
     docx_path = Path(docx_path)
     if (
@@ -474,9 +487,10 @@ def apply_geometry(
         and borders_preset is None
         and align is None
         and not balance
+        and not expand_transcripts
     ):
         raise ValueError(
-            "apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset/align/balance."
+            "apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset/align/balance/expand_transcripts."
         )
 
     root = load_document_root(docx_path)
@@ -538,6 +552,22 @@ def apply_geometry(
         else:
             for tbl in body.findall(_TBL_TAG):
                 balance_table_grid(tbl)
+
+    if expand_transcripts:
+        loc = target_locator or table_locator
+        h = row_height_dxa or 520
+        if loc is not None:
+            target_el = _resolve_target_element(docx_path, root, loc)
+            if target_el is not None:
+                tbl = target_el
+                while tbl is not None and tbl.tag != _TBL_TAG:
+                    tbl = tbl.getparent()
+                if tbl is not None:
+                    expand_transcript_table(tbl, h)
+        else:
+            for tbl in body.findall(_TBL_TAG):
+                if len(tbl.findall(_TR_TAG)) >= 15:
+                    expand_transcript_table(tbl, h)
 
     commit_result = _stage_and_commit(docx_path, root, work_dir, allowed_roots, actor, job_id)
     inspect_report = inspect_document(docx_path, work_dir=work_dir, job_id=job_id)

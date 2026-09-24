@@ -256,6 +256,8 @@ def _cmd_set_geometry(args: argparse.Namespace) -> Dict[str, Any]:
         target_locator=target_locator,
         align=getattr(args, "align", None),
         balance=getattr(args, "balance", False),
+        expand_transcripts=getattr(args, "expand_transcripts", False),
+        row_height_dxa=getattr(args, "row_height_dxa", None),
         work_dir=work_dir,
         allowed_roots=_default_allowed_roots(docx_path),
         actor=actor,
@@ -385,6 +387,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_geom.add_argument("--borders", choices=["all", "none", "horizontal-only", "notary-standard"])
     p_geom.add_argument("--align", choices=["left", "center", "right", "both"])
     p_geom.add_argument("--balance", action="store_true", help="Can chinh lai luoi cot va chieu rong cac o cua bang bi lech.")
+    p_geom.add_argument("--expand-transcripts", action="store_true", help="Keo dan chieu cao hang de full trang A4.")
+    p_geom.add_argument("--row-height-dxa", type=int, help="Chieu cao hang toi thieu (dxa).")
     p_geom.add_argument("--target-id")
     p_geom.add_argument("--expected-revision")
     p_geom.add_argument("--table-id")

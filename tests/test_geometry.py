@@ -520,3 +520,34 @@ def test_apply_geometry_paragraph_alignment(tmp_path):
     assert jc is not None
     assert jc.attrib[f"{{{WORD_NS}}}val"] == "center"
 
+
+def test_apply_geometry_expand_transcripts(tmp_path):
+    docx_path = tmp_path / "sample.docx"
+    _build_table_docx(docx_path, rows=16, cols=2)
+
+    proc = _run_cli(
+        "set-geometry", str(docx_path), "--expand-transcripts", "--row-height-dxa", "500",
+        "--json", "--work-dir", str(tmp_path),
+    )
+    assert proc.returncode == 0
+    payload = json.loads(proc.stdout)
+    assert payload["success"] is True
+    assert payload["outcome"] == "committed_clean"
+
+    root = load_document_root(docx_path)
+    body = root.find("w:body", _NSMAP)
+    tbl = body.findall("w:tbl", _NSMAP)[0]
+    for tr in tbl.findall("w:tr", _NSMAP):
+        tr_pr = tr.find("w:trPr", _NSMAP)
+        assert tr_pr is not None
+        tr_h = tr_pr.find("w:trHeight", _NSMAP)
+        assert tr_h is not None
+        assert tr_h.attrib[f"{{{WORD_NS}}}val"] == "500"
+        for tc in tr.findall("w:tc", _NSMAP):
+            tc_pr = tc.find("w:tcPr", _NSMAP)
+            assert tc_pr is not None
+            v_align = tc_pr.find("w:vAlign", _NSMAP)
+            assert v_align is not None
+            assert v_align.attrib[f"{{{WORD_NS}}}val"] == "center"
+
+

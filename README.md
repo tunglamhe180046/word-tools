@@ -1,74 +1,74 @@
 # Word Tools (Docx Surgical Engine) 🚀
 
-> **High-Precision, Surgical In-Place DOCX Manipulation Engine for AI Agents & Automation Pipelines.**  
-> *Edit existing Microsoft Word (.docx) files without regenerating from scratch, preserving 100% of human manual edits, complex formatting, drawings, and OPC package integrity.*
+> **Hạ tầng phẫu thuật tài liệu Word (.docx) tại chỗ với độ chính xác cao dành cho AI Agent & Hệ thống tự động hóa.**  
+> *Chỉnh sửa trực tiếp trên file Microsoft Word hiện có mà không cần tạo lại từ đầu, bảo tồn nguyên vẹn 100% nội dung sửa tay của con người, định dạng phức tạp, hình vẽ, và cấu trúc gói tệp OPC.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](adapters/word_engine_client.ts)
-[![Architecture: Surgical In-Place](https://img.shields.io/badge/Architecture-Surgical%20In--Place-green.svg)](#core-architecture--invariants)
+[![Phiên bản Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Hỗ trợ TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](adapters/word_engine_client.ts)
+[![Kiến trúc: Phẫu thuật tại chỗ](https://img.shields.io/badge/Kiến%20trúc-Phẫu%20thuật%20tại%20chỗ-green.svg)](#6-kiến-trúc-cốt-lõi--lưới-an-toàn-bảo-vệ-dữ-liệu)
 
 ---
 
-## 🌟 Why Word Tools?
+## 🌟 1. Tại sao cần Word Tools?
 
-Traditional Word document generators (or libraries that reload and rewrite entire `.docx` archives) suffer from a major fatal flaw: **they regenerate the entire document**. When an AI agent or automated script rewrites a document, it wipes out:
-- Manual user tweaks (dragged image boxes, fine-tuned table widths, manual comments, custom font kerning).
-- Complex OpenXML features (nested drawings, floating shapes, complex borders, notary stamps).
-- Unrelated document sections and OPC relationships.
+Các công cụ sinh tài liệu Word truyền thống (hoặc các thư viện đọc rồi lưu lại toàn bộ file `.docx`) đều gặp phải một **nhược điểm chí mạng: luôn dựng lại toàn bộ file từ đầu**. Khi một AI Agent hoặc kịch bản tự động sinh lại file, nó sẽ vô tình xóa sạch:
+- Toàn bộ thao tác chỉnh sửa tay của người dùng ngoài Microsoft Word (kéo chỉnh khung ảnh, căn chỉnh độ rộng cột bảng, ghi chú thủ công, giãn dòng typography).
+- Các định dạng OpenXML phức tạp (bảng lồng nhau, hình khối trôi nổi floating shapes, viền chuyên dụng, khung dấu công chứng).
+- Mối liên kết giữa các phần tệp OPC bên trong tài liệu.
 
-**Word Tools** solves this with a **Surgical In-Place Architecture (Profile 1)**:
-- **Zero Document Regeneration:** It opens the `.docx` archive, performs surgical XML DOM mutations on **only the targeted paragraph or cell**, and repacks it.
-- **Byte-level Preservation:** Untouched OPC parts retain their exact raw SHA-256 hash. Untouched XML subtrees retain 100% C14N canonical equivalence.
-- **Optimistic Concurrency & Anti-Drift Guardrail:** Every target locator is bound to a cryptographic `document_revision`. If a human user has edited the file in Word in the meantime, the engine refuses to overwrite (`DocumentDriftError`), preventing silent data loss.
+**Word Tools** giải quyết triệt để vấn đề này bằng **Kiến trúc Phẫu thuật tại chỗ (Profile 1 - Surgical In-Place)**:
+- **Tuyệt đối không dựng lại toàn bộ file:** Mở gói `.docx`, xác định chính xác vị trí XML của đúng đoạn văn hoặc ô bảng cần sửa, thực hiện thay thế cục bộ và đóng gói lại.
+- **Bảo toàn ở cấp độ Byte:** Các thành phần OPC không liên quan được giữ nguyên vẹn 100% mã băm SHA-256 thô. Các cây XML con không bị chạm tới được bảo toàn nguyên vẹn 100% theo chuẩn Canonical XML (C14N).
+- **Khóa lạc quan & Lưới chống mất dữ liệu (Anti-Drift Guardrail):** Mọi vị trí cần sửa đều được gắn chặt với mã băm mật mã `document_revision`. Nếu người dùng đã mở Word ra sửa tay trước đó, hệ thống sẽ phát hiện sai lệch (`DocumentDriftError`) và lập tức dừng lại, kiên quyết từ chối ghi đè để bảo vệ nội dung sửa tay.
 
 ---
 
-## 📦 Key Capabilities
+## 📦 2. Bảng Tính năng & Lệnh Cốt lõi
 
-| Command | Purpose | Safety Features |
+| Lệnh CLI | Nghiệp vụ chính | Cơ chế an toàn |
 | :--- | :--- | :--- |
-| **`inspect`** | Scans document structure, hashes revisions, and generates stable object locators. | Cryptographic `document_revision` & `context_sha256`. |
-| **`patch-cell`** | Surgically edits a specific table cell's text or styling. | Optimistic locking, preserves cell borders & shading. |
-| **`patch-text`** | Replaces text across arbitrary run boundaries (`<w:r>`). | Preserves bold/italic styles; fails closed on complex XML spans. |
-| **`set-geometry`** | Sets page size (A4), margins, and enforces pagination safety (`cantSplit`). | Independent separation of pagination and border styling. |
-| **`stamp-ops`** | Inserts stamps, seals, and signatures at exact anchors. | SHA-256 asset allowlist verification & audit provenance ledger. |
-| **`backups` & `restore`** | Manages automatic snapshots and atomic rollback transactions. | Prevents restoring over newer manual edits (`RestoreConflictError`). |
+| **`inspect`** | Quét cấu trúc tài liệu, tính mã băm phiên bản và cấp định danh ô/đoạn (`locators`). | Sinh `document_revision` và `context_sha256` độc bản. |
+| **`patch-cell`** | Phẫu thuật sửa nội dung hoặc kiểu dáng của một ô bảng duy nhất. | Khóa lạc quan (Optimistic lock), giữ nguyên viền, padding và màu nền ô. |
+| **`patch-text`** | Tìm và thay thế chuỗi văn bản phân tách qua nhiều run định dạng (`<w:r>`). | Giữ nguyên in đậm/nghiêng; tự động dừng an toàn khi gặp thẻ XML phức tạp. |
+| **`set-geometry`** | Căn chuẩn khổ giấy A4, lề công chứng và chống tràn dòng gãy bảng (`cantSplit`). | Tách bạch độc lập giữa cơ chế Dàn trang (Pagination) và Viền bảng (Borders). |
+| **`stamp-ops`** | Chèn ảnh con dấu, chữ ký điện tử vào vị trí neo toạ độ chính xác. | Kiểm tra danh sách trắng SHA-256 (Allowlist) & ghi nhật ký xuất xứ kiểm toán. |
+| **`backups` & `restore`** | Quản lý lịch sử bản sao lưu tự động và khôi phục nguyên trạng an toàn. | Từ chối khôi phục nếu đĩa có chỉnh sửa tay mới hơn (`RestoreConflictError`). |
 
 ---
 
-## 🛠️ Installation & Requirements
+## 🛠️ 3. Cài đặt & Yêu cầu Môi trường
 
-### System Requirements
+### Yêu cầu Hệ thống
 - **Python**: `>= 3.10`
-- **Operating System**: Windows, macOS, or Linux (Windows required for headless Word COM visual verification).
+- **Hệ điều hành**: Hỗ trợ Windows, macOS, Linux (Tính năng xuất PDF đối chiếu hình học yêu cầu Windows có cài Microsoft Word).
 
-### Setup
+### Cài đặt
 ```bash
 git clone https://github.com/tunglamhe180046/word-tools.git
 cd word-tools
 pip install -r requirements.txt
 ```
 
-### Core Dependencies
-- `lxml`: High-performance XML parsing, XPath traversal, and C14N canonicalization.
-- `python-docx`: DOCX structure inspection and manipulation.
-- `pillow`: Image processing for stamp and seal dimensions.
-- `psutil` & `pywin32`: Windows watchdog monitoring and headless Word COM automation.
-- `pymupdf`: PDF rasterization and visual regression verification.
+### Các thư viện phụ thuộc chính
+- `lxml`: Phân tích cú pháp XML hiệu năng cao, duyệt XPath và chuẩn hoá Canonical XML (C14N).
+- `python-docx`: Đọc và trích xuất cấu trúc văn bản DOCX.
+- `pillow`: Xử lý kích thước điểm ảnh cho con dấu và chữ ký.
+- `psutil` & `pywin32`: Cơ chế Watchdog giám sát tiến trình và tự động hoá Word COM không giao diện (headless) trên Windows.
+- `pymupdf`: Chuyển đổi PDF sang ảnh (rasterization) để đối chiếu trực quan.
 
 ---
 
-## 💻 CLI Usage Guide
+## 💻 4. Hướng dẫn Sử dụng Giao diện Dòng lệnh (CLI)
 
-The primary entry point is `cli.py`. All commands support `--json` output, making it ideal for integration with AI Agents (Claude, GPT, Jarvis) or automated CI/CD pipelines.
+Điểm nhập lệnh duy nhất của công cụ là `cli.py`. Mọi lệnh đều hỗ trợ tham số `--json` xuất kết quả có cấu trúc trên `stdout`, cực kỳ thuận tiện cho việc tích hợp vào AI Agent (Claude, GPT, Jarvis) hoặc pipeline tự động.
 
-### 1. `inspect` — Document Discovery & Locator Generation
-Scan any document to generate stable structural IDs:
+### 4.1. `inspect` — Khám phá Cấu trúc & Cấp Toạ độ (Locators)
+Quét toàn bộ tài liệu để lấy mã phiên bản và danh sách định danh:
 ```bash
-python cli.py inspect sample.docx --json
+python cli.py inspect tailieu_mau.docx --json
 ```
-**Sample JSON Output:**
+**Ví dụ kết quả JSON trả về:**
 ```json
 {
   "success": true,
@@ -89,31 +89,31 @@ python cli.py inspect sample.docx --json
 }
 ```
 
-### 2. `patch-cell` — Precision Table Cell Editing
-Modify a table cell with concurrency verification:
+### 4.2. `patch-cell` — Sửa Phẫu thuật Ô Bảng
+Thay đổi điểm số hoặc nội dung ô bảng kèm kiểm tra xung đột:
 ```bash
-python cli.py patch-cell sample.docx \
+python cli.py patch-cell tailieu_mau.docx \
   --target-id "cell_t0_r1_c2" \
   --new-text "9.0" \
   --expected-revision "sha256:d8a2f1b4..." \
   --json
 ```
 
-### 3. `patch-text` — Multi-Run Search & Replace
-Word often fragments words across multiple XML runs due to spellcheck or formatting. `patch-text` seamlessly stitches runs together:
+### 4.3. `patch-text` — Thay thế Văn bản Đa-Run (Multi-Run Resolver)
+Trong Word, một từ hoặc cụm từ thường bị phân mảnh thành nhiều thẻ `<w:r>` do lịch sử gõ hoặc kiểm tra chính tả. Lệnh `patch-text` ghép nối mượt mà và thay thế chính xác:
 ```bash
-python cli.py patch-text sample.docx \
-  --search "Old Organization Name" \
-  --replace "New Organization Name" \
+python cli.py patch-text tailieu_mau.docx \
+  --search "Tên Tổ Chức Cũ" \
+  --replace "Tên Tổ Chức Mới" \
   --json
 ```
-* **Unicode Normalization:** Automatically standardizes Unicode NFC across search terms.
-* **Fail-Closed Safety:** Refuses mutation if the target string spans unsupported complex XML elements (e.g. hyperlinks, drawing objects, tracked changes).
+* **Chuẩn hoá Unicode:** Tự động chuẩn hoá Unicode NFC cho cả chuỗi tìm kiếm và chuỗi thay thế.
+* **Nguyên tắc Fail-closed:** Lập tức dừng và báo lỗi an toàn nếu đoạn văn bản cần thay thế nằm đè lên các thẻ XML phức tạp (siêu liên kết hyperlink, hình vẽ drawing, theo dõi sửa đổi tracked changes).
 
-### 4. `set-geometry` — Standardizing Geometry & Pagination
-Enforce A4 standards, notary margins, and prevent awkward page breaks across tables:
+### 4.4. `set-geometry` — Chuẩn hoá Khổ giấy, Lề & Bảng Biểu
+Căn chỉnh khổ giấy A4, áp dụng lề chuẩn công chứng và chống tràn dòng gãy bảng:
 ```bash
-python cli.py set-geometry sample.docx \
+python cli.py set-geometry tailieu_mau.docx \
   --page-size A4 \
   --margins notary \
   --pagination \
@@ -121,22 +121,33 @@ python cli.py set-geometry sample.docx \
   --json
 ```
 
-### 5. `stamp-ops` — Digital Stamp & Signature Ingestion
-Inject official stamps with cryptographic security checks:
+### 4.5. `stamp-ops` — Chèn Con Dấu & Chữ Ký Pháp Lý
+Chèn ảnh con dấu vào đúng đoạn văn chỉ định với kiểm tra an ninh mật mã:
 ```bash
-python cli.py stamp-ops sample.docx \
-  --asset-path assets/official_stamp.png \
+python cli.py stamp-ops tailieu_mau.docx \
+  --asset-path assets/dau_do_phong_ho_so.png \
   --target-id "para_5" \
   --width-mm 35 \
   --height-mm 35 \
   --json
 ```
 
+### 4.6. `backups` & `restore` — Sao lưu & Khôi phục An toàn
+```bash
+# Xem danh sách các bản đã sao lưu tự động
+python cli.py backups tailieu_mau.docx --json
+
+# Khôi phục về bản sao lưu trước đó
+python cli.py restore tailieu_mau.docx \
+  --backup-id "<id_ban_sao_luu>" \
+  --json
+```
+
 ---
 
-## ⚡ TypeScript / Node.js Integration
+## ⚡ 5. Tích hợp với TypeScript / Node.js
 
-Word Tools provides an asynchronous TypeScript adapter client at `adapters/word_engine_client.ts`:
+Bộ công cụ cung cấp sẵn một Client Adapter bất đồng bộ viết bằng TypeScript tại đường dẫn `adapters/word_engine_client.ts`:
 
 ```typescript
 import {
@@ -146,14 +157,14 @@ import {
   setGeometry
 } from "./adapters/word_engine_client";
 
-async function main() {
-  const docPath = "sample.docx";
+async function run() {
+  const docPath = "tailieu_mau.docx";
 
-  // 1. Inspect document structure
+  // 1. Quét tài liệu để lấy phiên bản hiện hành
   const inspection = await inspectDocument(docPath);
-  console.log("Current Revision:", inspection.document_revision);
+  console.log("Mã phiên bản hiện tại:", inspection.document_revision);
 
-  // 2. Find and surgically patch a cell
+  // 2. Tìm ô cần sửa và thực hiện phẫu thuật tại chỗ
   const target = inspection.locators.find(loc => loc.expected_text === "8.5");
   if (target) {
     const result = await patchCell(docPath, {
@@ -161,53 +172,53 @@ async function main() {
       newText: "9.0",
       expectedRevision: inspection.document_revision,
     });
-    console.log("Updated Revision:", result.new_document_revision);
+    console.log("Mã phiên bản mới sau khi sửa:", result.new_document_revision);
   }
 
-  // 3. Global text replacement preserving styles
+  // 3. Thay thế chuỗi văn bản giữ nguyên định dạng in đậm/nghiêng
   await patchText(docPath, {
-    search: "DRAFT",
-    replace: "OFFICIAL RELEASE",
+    search: "BẢN THẢO",
+    replace: "BẢN CHÍNH THỨC",
   });
 }
 
-main().catch(console.error);
+run().catch(console.error);
 ```
 
 ---
 
-## 🛡️ Core Architecture & Invariants
+## 🛡️ 6. Kiến trúc Cốt lõi & Lưới An toàn Bảo vệ Dữ liệu
 
 ```mermaid
 flowchart TD
-    A[Incoming Edit Request] --> B[Commit Broker Lease Lock]
-    B --> C[Verify Document Revision & SHA-256]
-    C -->|Hash Mismatch| D[Abort: DocumentDriftError - Protect User Edits]
-    C -->|Hash Verified| E[Create Timestamped Backup in _backup/]
-    E --> F[Execute Surgical XML Mutation Profile 1]
-    F --> G[C14N Canonical & Schema Validation]
-    G --> H[Atomic File Replace via os.replace]
-    H --> I[Release Lock & Return New Locators]
+    A[Yêu cầu Chỉnh sửa Gửi đến] --> B[Commit Broker Kích hoạt Khóa .commit.lock]
+    B --> C[Kiểm tra Đối chiếu Mã băm document_revision]
+    C -->|Sai lệch Hash| D[Dừng ngay: Báo lỗi DocumentDriftError - Bảo vệ Sửa tay]
+    C -->|Mã băm Khớp 100%| E[Tự động Tạo Snapshot Bản sao lưu trong _backup/]
+    E --> F[Thực thi Phẫu thuật Cục bộ Profile 1 trên XML]
+    F --> G[Kiểm định Tính hợp lệ C14N & Cấu trúc Schema]
+    G --> H[Ghi đè Nguyên tử Atomic Replace qua os.replace]
+    H --> I[Giải phóng Khóa Lease Lock & Trả về Danh sách Locators Mới]
 ```
 
-1. **Zero Cross-Dependencies:** Completely self-contained engine. Does not import external business or framework logic.
-2. **Profile 1 Surgical Mode:** Unaffected XML subtrees and OPC parts remain 100% byte-identical.
-3. **18-Step Commit Broker:** Every write operation is wrapped in a mutual-exclusion commit lease (`.commit.lock`), automatic snapshotting, and atomic replacement.
-4. **Data Loss Guardrail:** Strictly fail-closed. If an external user modified the file outside the engine, operations abort immediately to protect manual work.
+1. **Độc lập Tuyệt đối (Zero Cross-Dependencies):** Module hoạt động độc lập 100%, không phụ thuộc vào bất kỳ logic nghiệp vụ hoặc framework bên ngoài nào.
+2. **Chế độ Phẫu thuật Profile 1:** Giữ nguyên vẹn từng byte của các thành phần XML và OPC part không nằm trong diện cần sửa đổi.
+3. **Commit Broker 18 Bước:** Mọi thao tác ghi đĩa đều đi qua khóa loại trừ tương hỗ (`.commit.lock`), tạo backup tự động có timestamp, và ghi đè nguyên tử (`os.replace`).
+4. **Nguyên tắc Fail-closed Tuyệt đối:** Nếu phát hiện file có người sửa ngoài Word sau thời điểm quét, hệ thống lập tức từ chối ghi đè để bảo vệ an toàn công sức của người dùng.
 
 ---
 
-## 🧪 Running Tests
+## 🧪 7. Kiểm thử Tự động (Testing)
 
-Word Tools comes with an extensive unit and integration test suite:
+Word Tools đi kèm bộ kiểm thử toàn diện từ đơn vị (unit test) đến tích hợp (integration test):
 
 ```bash
-# Run full pytest suite
+# Chạy toàn bộ 123 bài kiểm thử với pytest
 pytest tests/ -v
 ```
 
 ---
 
-## 📄 License
+## 📄 8. Bản quyền & Giấy phép
 
-This project is licensed under the [MIT License](LICENSE).
+Dự án được phát hành theo giấy phép nguồn mở [MIT License](LICENSE) — Bản quyền (c) 2026 Tùng Lâm.

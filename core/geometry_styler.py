@@ -373,6 +373,75 @@ def _resolve_target_element(
     return resolve_in_document(root, asdict(locator))
 
 
+def balance_table_grid(tbl: etree._Element, target_width: int = 10368) -> bool:
+    """Can chinh lai luoi cot va chieu rong cac o cua bang neu phat hien bang bi lech
+    (lech chieu rong giua cac hang, hoac gridCol khong khop voi cac hang).
+    Dac biet xu ly bang tong ket hoc ba (6 cot noi dung va 1 hang cuoi span toan bo).
+    Tra ve True neu da can chinh, False neu khong khop mau bang can xu ly."""
+    trs = tbl.findall(_TR_TAG)
+    if len(trs) < 2:
+        return False
+
+    last_tr = trs[-1]
+    last_tcs = last_tr.findall(_TC_TAG)
+    first_tr_tcs = trs[0].findall(_TC_TAG)
+
+    if len(last_tcs) == 1 and len(first_tr_tcs) in (4, 6):
+        cols = [1548, 1702, 1702, 2012, 1702, 1702]
+        total_w = sum(cols)  # 10368
+
+        # 1. Update tblGrid
+        grid = tbl.find(_w("tblGrid"))
+        if grid is not None:
+            grid.clear()
+            for w in cols:
+                etree.SubElement(grid, _w("gridCol"), {_w("w"): str(w)})
+
+        # 2. Update tblW & jc
+        tbl_pr = _get_or_insert_first(tbl, _w("tblPr"))
+        tbl_w_el = _get_or_insert_first(tbl_pr, _w("tblW"))
+        tbl_w_el.set(_w("w"), str(total_w))
+        tbl_w_el.set(_w("type"), "dxa")
+
+        jc_el = etree.Element(_w("jc"))
+        jc_el.set(_w("val"), "center")
+        _set_ordered_child(tbl_pr, _w("jc"), TBLPR_ORDER, jc_el)
+
+        # 3. Row 0
+        if len(first_tr_tcs) == 4:
+            first_tr_tcs[0].find(_w("tcPr")).find(_w("tcW")).set(_w("w"), str(cols[0]))
+            first_tr_tcs[1].find(_w("tcPr")).find(_w("tcW")).set(_w("w"), str(cols[1] + cols[2]))
+            first_tr_tcs[2].find(_w("tcPr")).find(_w("tcW")).set(_w("w"), str(cols[3]))
+            first_tr_tcs[3].find(_w("tcPr")).find(_w("tcW")).set(_w("w"), str(cols[4] + cols[5]))
+        elif len(first_tr_tcs) == 6:
+            for i, tc in enumerate(first_tr_tcs):
+                tc.find(_w("tcPr")).find(_w("tcW")).set(_w("w"), str(cols[i]))
+
+        # 4. Middle rows
+        for r in trs[1:-1]:
+            r_tcs = r.findall(_TC_TAG)
+            if len(r_tcs) == 6:
+                for i, tc in enumerate(r_tcs):
+                    tc_pr = tc.find(_w("tcPr"))
+                    if tc_pr is not None:
+                        tc_w = tc_pr.find(_w("tcW"))
+                        if tc_w is not None:
+                            tc_w.set(_w("w"), str(cols[i]))
+
+        # 5. Last row
+        last_tc_pr = last_tcs[0].find(_w("tcPr"))
+        if last_tc_pr is not None:
+            last_tc_w = last_tc_pr.find(_w("tcW"))
+            if last_tc_w is not None:
+                last_tc_w.set(_w("w"), str(total_w))
+            grid_span = last_tc_pr.find(_w("gridSpan"))
+            if grid_span is not None:
+                grid_span.set(_w("val"), "6")
+
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Public API: apply_geometry()
 # ---------------------------------------------------------------------------
@@ -385,13 +454,14 @@ def apply_geometry(
     table_locator: Optional[ObjectLocator] = None,
     target_locator: Optional[ObjectLocator] = None,
     align: Optional[str] = None,
+    balance: bool = False,
     work_dir: Optional[Union[str, Path]] = None,
     allowed_roots: Optional[List[Union[str, Path]]] = None,
     actor: str = "word-engine",
     job_id: Optional[str] = None,
 ) -> PatchResult:
     """Diem vao cong khai duy nhat cua module (xem docstring nhiem vu Phase 2): ap dung tuan tu,
-    hoan toan doc lap 3 nhom Page Setup -> Pagination -> Borders -> Alignment, commit qua dung Commit
+    hoan toan doc lap 3 nhom Page Setup -> Pagination -> Borders -> Alignment -> Balance, commit qua dung Commit
     Broker 18 buoc da kiem toan (_stage_and_commit() tai su dung tu core/surgical_patcher.py, tu
     no da bao gom issue_job() chup baseline hash truoc luc dong goi candidate) va tra ve locators
     moi qua mot lan re-inspect.
@@ -403,8 +473,11 @@ def apply_geometry(
         and not pagination
         and borders_preset is None
         and align is None
+        and not balance
     ):
-        raise ValueError("apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset/align.")
+        raise ValueError(
+            "apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset/align/balance."
+        )
 
     root = load_document_root(docx_path)
     body = root.find(_BODY_TAG)
@@ -451,6 +524,20 @@ def apply_geometry(
                 _set_ordered_child(tbl_pr, _w("jc"), TBLPR_ORDER, jc_el)
         else:
             raise ValueError(f"Khong the set alignment cho element: {target_el.tag}")
+
+    if balance:
+        loc = target_locator or table_locator
+        if loc is not None:
+            target_el = _resolve_target_element(docx_path, root, loc)
+            if target_el is not None:
+                tbl = target_el
+                while tbl is not None and tbl.tag != _TBL_TAG:
+                    tbl = tbl.getparent()
+                if tbl is not None:
+                    balance_table_grid(tbl)
+        else:
+            for tbl in body.findall(_TBL_TAG):
+                balance_table_grid(tbl)
 
     commit_result = _stage_and_commit(docx_path, root, work_dir, allowed_roots, actor, job_id)
     inspect_report = inspect_document(docx_path, work_dir=work_dir, job_id=job_id)

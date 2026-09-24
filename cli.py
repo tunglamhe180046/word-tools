@@ -255,6 +255,7 @@ def _cmd_set_geometry(args: argparse.Namespace) -> Dict[str, Any]:
         table_locator=target_locator if (target_locator and target_locator.kind == "table_cell") else None,
         target_locator=target_locator,
         align=getattr(args, "align", None),
+        balance=getattr(args, "balance", False),
         work_dir=work_dir,
         allowed_roots=_default_allowed_roots(docx_path),
         actor=actor,
@@ -383,6 +384,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_geom.add_argument("--pagination", action="store_true")
     p_geom.add_argument("--borders", choices=["all", "none", "horizontal-only", "notary-standard"])
     p_geom.add_argument("--align", choices=["left", "center", "right", "both"])
+    p_geom.add_argument("--balance", action="store_true", help="Can chinh lai luoi cot va chieu rong cac o cua bang bi lech.")
     p_geom.add_argument("--target-id")
     p_geom.add_argument("--expected-revision")
     p_geom.add_argument("--table-id")

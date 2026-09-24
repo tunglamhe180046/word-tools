@@ -493,3 +493,30 @@ def test_cli_argparse_error_without_json_keeps_default_argparse_behavior(tmp_pat
     assert proc.returncode == 2
     assert proc.stdout == ""
     assert proc.stderr != ""
+
+
+def test_apply_geometry_paragraph_alignment(tmp_path):
+    docx_path = tmp_path / "sample.docx"
+    _build_table_docx(docx_path, with_heading=True)
+
+    report = inspect_document(docx_path, work_dir=tmp_path, job_id="inspect-align")
+    para_loc = next(loc for loc in report["locators"] if loc["kind"] == "paragraph")
+
+    proc = _run_cli(
+        "set-geometry", str(docx_path), "--align", "center",
+        "--target-id", para_loc["object_id"], "--json", "--work-dir", str(tmp_path),
+    )
+    assert proc.returncode == 0
+    payload = json.loads(proc.stdout)
+    assert payload["success"] is True
+    assert payload["outcome"] == "committed_clean"
+
+    root = load_document_root(docx_path)
+    body = root.find("w:body", _NSMAP)
+    p = body.findall("w:p", _NSMAP)[0]
+    p_pr = p.find("w:pPr", _NSMAP)
+    assert p_pr is not None
+    jc = p_pr.find("w:jc", _NSMAP)
+    assert jc is not None
+    assert jc.attrib[f"{{{WORD_NS}}}val"] == "center"
+

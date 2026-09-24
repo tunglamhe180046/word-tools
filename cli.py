@@ -233,13 +233,18 @@ def _cmd_set_geometry(args: argparse.Namespace) -> Dict[str, Any]:
     job_id = args.job_id or uuid.uuid4().hex
     actor = args.actor or DEFAULT_ACTOR
 
-    table_locator: Optional[ObjectLocator] = None
-    if args.table_id:
-        report = inspect_document(docx_path, work_dir=work_dir, job_id=job_id)
-        locator_dict = next((loc for loc in report["locators"] if loc["object_id"] == args.table_id), None)
-        if locator_dict is None:
-            raise LocatorNotFoundError(args.table_id)
-        table_locator = ObjectLocator(**locator_dict)
+    target_locator: Optional[ObjectLocator] = None
+    target_id = getattr(args, "target_id", None) or getattr(args, "table_id", None)
+    expected_revision = getattr(args, "expected_revision", None)
+    if target_id:
+        if expected_revision:
+            target_locator = _resolve_locator_or_raise(docx_path, work_dir, job_id, target_id, expected_revision)
+        else:
+            report = inspect_document(docx_path, work_dir=work_dir, job_id=job_id)
+            locator_dict = next((loc for loc in report["locators"] if loc["object_id"] == target_id), None)
+            if locator_dict is None:
+                raise LocatorNotFoundError(target_id)
+            target_locator = ObjectLocator(**locator_dict)
 
     result = apply_geometry(
         docx_path,
@@ -247,7 +252,9 @@ def _cmd_set_geometry(args: argparse.Namespace) -> Dict[str, Any]:
         margins=args.margins,
         pagination=args.pagination,
         borders_preset=args.borders,
-        table_locator=table_locator,
+        table_locator=target_locator if (target_locator and target_locator.kind == "table_cell") else None,
+        target_locator=target_locator,
+        align=getattr(args, "align", None),
         work_dir=work_dir,
         allowed_roots=_default_allowed_roots(docx_path),
         actor=actor,
@@ -375,6 +382,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_geom.add_argument("--margins", choices=["notary", "standard", "compact"])
     p_geom.add_argument("--pagination", action="store_true")
     p_geom.add_argument("--borders", choices=["all", "none", "horizontal-only", "notary-standard"])
+    p_geom.add_argument("--align", choices=["left", "center", "right", "both"])
+    p_geom.add_argument("--target-id")
+    p_geom.add_argument("--expected-revision")
     p_geom.add_argument("--table-id")
     p_geom.add_argument("--json", action="store_true")
     p_geom.add_argument("--work-dir")

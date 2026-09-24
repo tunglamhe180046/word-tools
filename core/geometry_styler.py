@@ -347,45 +347,64 @@ def _resolve_target_table(
     return tbl
 
 
+_VALID_ALIGNMENTS = {"left", "center", "right", "both"}
+
+
+def set_paragraph_alignment(p: etree._Element, alignment: str) -> None:
+    """Thiet lap w:jc (can le) cho doan van (w:p).
+    Gia tri hop le: 'left', 'center', 'right', 'both'.
+    Chen vao dung vi tri schema PPR_ORDER."""
+    if alignment not in _VALID_ALIGNMENTS:
+        raise ValueError(f"alignment khong hop le: {alignment!r} (chi nhan left|center|right|both)")
+    p_pr = _get_or_insert_first(p, _w("pPr"))
+    jc_el = etree.Element(_w("jc"))
+    jc_el.set(_w("val"), alignment)
+    _set_ordered_child(p_pr, _w("jc"), PPR_ORDER, jc_el)
+
+
+def _resolve_target_element(
+    docx_path: Path, root: etree._Element, locator: Optional[ObjectLocator]
+) -> Optional[etree._Element]:
+    if locator is None:
+        return None
+    current_revision = f"sha256:{sha256_file(docx_path)}"
+    if current_revision != locator.revision:
+        raise DocumentDriftError(locator.revision, current_revision)
+    return resolve_in_document(root, asdict(locator))
+
+
 # ---------------------------------------------------------------------------
 # Public API: apply_geometry()
 # ---------------------------------------------------------------------------
 def apply_geometry(
     docx_path: Union[str, Path],
-    page_size: Optional[str],
-    margins: Optional[str],
-    pagination: bool,
-    borders_preset: Optional[str],
-    table_locator: Optional[ObjectLocator],
-    work_dir: Union[str, Path],
-    allowed_roots: List[Union[str, Path]],
-    actor: str,
-    job_id: str,
+    page_size: Optional[str] = None,
+    margins: Optional[str] = None,
+    pagination: bool = False,
+    borders_preset: Optional[str] = None,
+    table_locator: Optional[ObjectLocator] = None,
+    target_locator: Optional[ObjectLocator] = None,
+    align: Optional[str] = None,
+    work_dir: Optional[Union[str, Path]] = None,
+    allowed_roots: Optional[List[Union[str, Path]]] = None,
+    actor: str = "word-engine",
+    job_id: Optional[str] = None,
 ) -> PatchResult:
     """Diem vao cong khai duy nhat cua module (xem docstring nhiem vu Phase 2): ap dung tuan tu,
-    hoan toan doc lap 3 nhom Page Setup -> Pagination -> Borders (thu tu goi khong quan trong vi 3
-    nhom khong dung cham chung bat ky the XML nao - xem module docstring), commit qua dung Commit
+    hoan toan doc lap 3 nhom Page Setup -> Pagination -> Borders -> Alignment, commit qua dung Commit
     Broker 18 buoc da kiem toan (_stage_and_commit() tai su dung tu core/surgical_patcher.py, tu
     no da bao gom issue_job() chup baseline hash truoc luc dong goi candidate) va tra ve locators
-    moi qua mot lan re-inspect (khong bao gio tu "rebase" locator cu, cung tinh than voi
-    patch_cell()/patch_text() cua core/surgical_patcher.py).
-
-    table_locator == None + pagination=True hoac borders_preset != None -> ap dung dong loat cho
-    TOAN BO cac bang la con TRUC TIEP cua w:body (dung tinh than "khong bia dat du kien": khi
-    nguoi goi khong chi ro bang nao, ap dung dong nhat cho moi bang thay vi doan bua 1 bang "co le
-    la muc tieu" - khac voi patch_text() (bat buoc dung 1 doan van khop, tu choi neu > 1) vi
-    pagination/borders von la thuoc tinh TRINH BAY ap dung dong loat cho ca tai lieu trong thuc te
-    nghiep vu (vd toan bo bang trong 1 hop dong/bien ban deu can cung 1 kieu vien va chong vo
-    trang), khong phai noi dung ngu nghia rieng biet cho tung bang mot nhu van ban).
-    page_size/margins luon ap dung cho DUNG 1 section cuoi cung cua tai lieu (xem
-    _get_or_create_final_sect_pr(), cung pham vi Phase 1/2 MVP voi core/inspector.py).
-
-    Nem ValueError neu khong co tham so nao trong 4 tham so (page_size, margins, pagination,
-    borders_preset) duoc truyen (khong co gi de lam), hoac neu tai lieu khong co bang nao truc
-    tiep trong w:body trong khi pagination/borders_preset duoc yeu cau."""
+    moi qua mot lan re-inspect.
+    """
     docx_path = Path(docx_path)
-    if page_size is None and margins is None and not pagination and borders_preset is None:
-        raise ValueError("apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset.")
+    if (
+        page_size is None
+        and margins is None
+        and not pagination
+        and borders_preset is None
+        and align is None
+    ):
+        raise ValueError("apply_geometry() can it nhat 1 trong page_size/margins/pagination/borders_preset/align.")
 
     root = load_document_root(docx_path)
     body = root.find(_BODY_TAG)
@@ -411,6 +430,27 @@ def apply_geometry(
                 set_pagination(tbl)
             if borders_preset is not None:
                 set_borders(tbl, borders_preset)
+
+    if align is not None:
+        loc = target_locator or table_locator
+        if loc is None:
+            raise ValueError("set-geometry voi --align can --target-id de xac dinh doan van hoac bang can can le.")
+        target_el = _resolve_target_element(docx_path, root, loc)
+        if target_el is None:
+            raise LocatorNotFoundError(loc.object_id)
+        if target_el.tag == _P_TAG:
+            set_paragraph_alignment(target_el, align)
+        elif target_el.tag == _TBL_TAG or loc.kind == "table_cell":
+            tbl = target_el
+            while tbl is not None and tbl.tag != _TBL_TAG:
+                tbl = tbl.getparent()
+            if tbl is not None:
+                tbl_pr = _get_or_insert_first(tbl, _w("tblPr"))
+                jc_el = etree.Element(_w("jc"))
+                jc_el.set(_w("val"), align)
+                _set_ordered_child(tbl_pr, _w("jc"), TBLPR_ORDER, jc_el)
+        else:
+            raise ValueError(f"Khong the set alignment cho element: {target_el.tag}")
 
     commit_result = _stage_and_commit(docx_path, root, work_dir, allowed_roots, actor, job_id)
     inspect_report = inspect_document(docx_path, work_dir=work_dir, job_id=job_id)

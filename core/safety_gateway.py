@@ -766,8 +766,15 @@ def request_commit(job_id: str, work_dir: Optional[Union[str, Path]] = None) -> 
 
         # Buoc 12 & 13: Atomic Replace
         did_replace = False
-        os.replace(temp_file, target_abs)
-        did_replace = True
+        try:
+            os.replace(temp_file, target_abs)
+            did_replace = True
+        finally:
+            if not did_replace and temp_file.exists():
+                try:
+                    temp_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
         # Audit REPLACED
         append_audit_log({

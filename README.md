@@ -1,11 +1,12 @@
-# Word Tools (Docx Surgical Engine) 🚀
+# Word & Excel Tools (Document Surgical Engine) 🚀
 
-> **Hạ tầng phẫu thuật tài liệu Word (.docx) tại chỗ với độ chính xác cao dành cho AI Agent & Hệ thống tự động hóa.**  
-> *Chỉnh sửa trực tiếp trên file Microsoft Word hiện có mà không cần tạo lại từ đầu, bảo tồn nguyên vẹn 100% nội dung sửa tay của con người, định dạng phức tạp, hình vẽ, và cấu trúc gói tệp OPC.*
+> **Hạ tầng phẫu thuật tài liệu Word (.docx) & bảng tính Excel (.xlsx) tại chỗ với độ chính xác cao dành cho AI Agent & Hệ thống tự động hóa.**  
+> *Chỉnh sửa trực tiếp trên file Microsoft Office hiện có mà không cần tạo lại từ đầu, bảo tồn nguyên vẹn 100% nội dung sửa tay của con người, định dạng phức tạp, công thức, hình vẽ, và cấu trúc gói tệp OPC.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Phiên bản Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Hỗ trợ TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](adapters/word_engine_client.ts)
+[![Hỗ trợ Excel](https://img.shields.io/badge/Excel%20Tools-Available-success.svg)](excel-engine/README.md)
 [![Kiến trúc: Phẫu thuật tại chỗ](https://img.shields.io/badge/Kiến%20trúc-Phẫu%20thuật%20tại%20chỗ-green.svg)](#6-kiến-trúc-cốt-lõi--lưới-an-toàn-bảo-vệ-dữ-liệu)
 
 ---
@@ -219,6 +220,24 @@ pytest tests/ -v
 
 ---
 
-## 📄 8. Bản quyền & Giấy phép
+## 📊 8. Mở rộng: Excel Tools (Xlsx Surgical Engine)
+
+Dự án hiện bao gồm module **Excel Tools** chuyên biệt tại thư mục [`excel-engine/`](excel-engine/README.md) dành riêng cho phẫu thuật tài liệu Microsoft Excel (`.xlsx`):
+- **Cơ chế:** Phẫu thuật SpreadsheetML tại chỗ, bảo tồn 100% SHA-256 các part ngoài sheet (`sharedStrings.xml`, styles, formulas, VBA, drawings).
+- **Lưới an toàn:** Tích hợp đầy đủ `SafetyGateway`, optimistic locking, chống `DocumentDriftError`, sao lưu tự động & khôi phục.
+- **Kiểm thử độc lập:** 151 test cases toàn diện được cô lập 100% trong `tmp_path`.
+
+```bash
+# Xem hướng dẫn chi tiết của Excel Tools:
+cd excel-engine
+python cli.py --help
+
+# Chạy bộ test riêng cho Excel Tools:
+pytest tests/ -v
+```
+
+---
+
+## 📄 9. Bản quyền & Giấy phép
 
 Dự án được phát hành theo giấy phép nguồn mở [MIT License](LICENSE) — Bản quyền (c) 2026 Tùng Lâm.

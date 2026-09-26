@@ -114,6 +114,48 @@ class VisualDiffViolationError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Platform / availability
 # ---------------------------------------------------------------------------
+def _configure_safe_virtual_printer(word_app: Any) -> None:
+    """Don bay 3 (docs/plans/WORD_COM_ACCELERATION_PLAN.md muc 3.3): quet dong danh sach may in
+    kha dung tren he thong (qua win32print.EnumPrinters) de chon may in ao cuc bo an toan
+    (PDF/XPS/Document Writer/Virtual) thay vi chi thu 2 ten co dinh viet cung. Tranh treo driver
+    khi may in mac dinh la may in mang offline.
+
+    Ban cai dat DOC LAP voi dich-thuat/engine/word_com_worker.py::_configure_safe_virtual_printer
+    (cung tinh than, khong import - xem module docstring, nac 2 cua CLAUDE.md goc). Chi anh huong
+    phien COM cua word_app hien tai, tuyet doi khong doi may in mac dinh cua he dieu hanh; khong
+    gan duoc printer nao thi giu nguyen ActivePrinter hien tai va tiep tuc, khong crash."""
+    candidates = []
+    try:
+        import win32print
+        flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        printers = [p[2] for p in win32print.EnumPrinters(flags)]
+        for p in printers:
+            plow = p.lower()
+            if "pdf" in plow:
+                candidates.append((1, p))
+            elif "xps" in plow:
+                candidates.append((2, p))
+            elif "writer" in plow or "virtual" in plow or "onenote" in plow:
+                candidates.append((3, plow if "onenote" in plow else p))
+            elif not any(net in plow for net in ["ricoh", "lan", "network", "share", "\\\\"]):
+                candidates.append((4, p))
+        candidates.sort(key=lambda x: x[0])
+        printer_list = [c[1] for c in candidates]
+    except Exception:
+        printer_list = []
+
+    for fallback in ["Microsoft Print to PDF", "Microsoft XPS Document Writer"]:
+        if fallback not in printer_list:
+            printer_list.append(fallback)
+
+    for printer_name in printer_list:
+        try:
+            word_app.ActivePrinter = printer_name
+            return
+        except Exception:
+            continue
+
+
 def is_windows() -> bool:
     return platform.system().lower() == "windows"
 
@@ -280,6 +322,7 @@ class ComSupervisor:
             app.Visible = False
             app.DisplayAlerts = 0
             app.ScreenUpdating = False
+            _configure_safe_virtual_printer(app)
             pid = _resolve_word_pid_via_caption(app)
             import psutil
 
